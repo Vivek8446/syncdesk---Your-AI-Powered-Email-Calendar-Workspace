@@ -5,12 +5,13 @@ import { createCorsair } from 'corsair';
 import {  gmail } from '@corsair-dev/gmail';
 import { github } from '@corsair-dev/github';
 import { googlecalendar } from "@corsair-dev/googlecalendar";
-
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+import { pool } from '@/app/src/db';
+import 'dotenv/config'
+// const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 // const db = drizzle(pool); // your app tables
 
 export const corsair = createCorsair({
-    plugins: [gmail({ authType: "oauth_2" }), github(), googlecalendar()],
+    plugins: [gmail(), github(), googlecalendar()],
     database: pool,
     kek: process.env.CORSAIR_KEK!,
     multiTenancy: true,

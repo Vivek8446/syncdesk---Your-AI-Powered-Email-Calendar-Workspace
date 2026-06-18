@@ -1,8 +1,8 @@
 import { corsair } from "@/corsair";
 import { auth } from "@/app/src/lib/auth";
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
-// import {gmail} from "@corsair-dev/gmail";
+import { NextResponse } from "next/server";
+import { generateOAuthUrl } from "corsair/oauth";
 
 export async function GET() {
   const session = await auth.api.getSession({
@@ -10,15 +10,29 @@ export async function GET() {
   });
 
   if (!session) {
-    return redirect("/login");
+    const redirectUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/login`;
+    return NextResponse.redirect(redirectUrl);
   }
 
-  // Generate a Corsair OAuth URL for Gmail with tenant identifier
-  const url = await corsair
-    .withTenant(session.user.id)
-    .gmail({ 
-      redirectUrl: `${process.env.NEXT_PUBLIC_BASE_URL}/api/corsair/callback/gmail` 
+  const redirectUri = `${process.env.NEXT_PUBLIC_BASE_URL}/api/corsair/callback/google`;
+
+  try {
+    const { url, state } = await generateOAuthUrl(corsair, "gmail", {
+      tenantId: session.user.id,
+      redirectUri,
     });
 
-  return redirect(url);
+    const response = NextResponse.redirect(url);
+    response.cookies.set("oauth_state", state, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 600, // 10 minutes
+    });
+
+    return response;
+  } catch (error) {
+    console.error("Failed to generate Corsair OAuth URL:", error);
+    return new NextResponse("Failed to generate Gmail connection link.", { status: 500 });
+  }
 }

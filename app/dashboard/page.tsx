@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { SignOutButton } from "./SignOutButton";
 import { corsair } from "@/corsair";
+import { syncGoogleTokensToCorsair } from "@/app/src/lib/sync-tokens";
 
 export default async function DashboardPage() {
   const session = await auth.api.getSession({
@@ -15,19 +16,56 @@ export default async function DashboardPage() {
 
   const user = session.user;
   const userId = user.id;
-
-  let gmailConnected = false;
-  let messages: any = null;
+console.log(">>><<<<<<<", user.id, userId)
+  // Automatically sync Google OAuth tokens from Better Auth sign-up to Corsair
+ const corsairUser =  await syncGoogleTokensToCorsair(userId);
+console.log(">>>>1", corsairUser)
+let gmailConnected = false;
+  let messages: any[] = []; // Change this to an array to hold complete email details
   let fetchError: string | null = null;
 
   try {
-    // Attempt to fetch Gmail messages server-side using Corsair
-    const res = await corsair
-      .withTenant(userId)
-      .gmail.api.messages.list({ maxResults: 5 });
+    console.log("Fetching Gmail list for user:", userId);
     
-    // If successful, Gmail is connected
-    messages = res;
+    // 1. Get the list of message IDs
+    const listRes = await corsair
+      .withTenant(userId)
+      .gmail.api.messages.list({ 
+        maxResults: 5,
+        q: "is:unread"
+      });
+
+    if (listRes && listRes.messages && listRes.messages.length > 0) {
+      // 2. Map over the IDs and fetch the actual contents for all of them concurrently
+      const detailedMessagesPromises = listRes.messages.map(async (msg: any) => {
+        try {
+          const fullMessage = await corsair
+            .withTenant(userId)
+            .gmail.api.messages.get({ id: msg.id });
+          
+          // Extract specific headers cleanly (like From and Subject)
+          const headers = fullMessage.payload?.headers || [];
+          const subject = headers.find((h: any) => h.name.toLowerCase() === "subject")?.value || "No Subject";
+          const from = headers.find((h: any) => h.name.toLowerCase() === "from")?.value || "Unknown Sender";
+
+          return {
+            id: fullMessage.id,
+            threadId: fullMessage.threadId,
+            snippet: fullMessage.snippet || "No text description available.",
+            subject,
+            from,
+          };
+        } catch (err) {
+          console.error(`Failed to fetch details for message ${msg.id}:`, err);
+          return null;
+        }
+      });
+
+      // Wait for all individual email data calls to resolve
+      const resolvedMessages = await Promise.all(detailedMessagesPromises);
+      messages = resolvedMessages.filter((msg) => msg !== null); // Filter out any failures
+    }
+    
     gmailConnected = true;
   } catch (error: any) {
     console.log("Gmail is not connected or fetch failed:", error?.message || error);
@@ -240,45 +278,48 @@ export default async function DashboardPage() {
                     Recent Gmail Messages (Corsair API)
                   </h4>
                   <div className="space-y-3">
-                    {messages && messages.messages && messages.messages.length > 0 ? (
-                      messages.messages.map((msg: any) => (
-                        <div
-                          key={msg.id}
-                          className="p-4 rounded-xl bg-zinc-950/50 border border-zinc-900/80 hover:border-zinc-800 transition-all duration-150 flex items-start justify-between gap-4"
-                        >
-                          <div className="space-y-1 min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-xs text-zinc-300 font-mono bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">
-                                ID: {msg.id.substring(0, 8)}...
-                              </span>
-                              <span className="text-zinc-500 text-[10px]">
-                                Thread: {msg.threadId.substring(0, 8)}...
-                              </span>
-                            </div>
-                            <p className="text-sm text-zinc-400 truncate">
-                              {msg.snippet || "No snippet description available."}
-                            </p>
-                          </div>
-                          <svg
-                            className="w-4 h-4 text-zinc-600 shrink-0 mt-1"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M9 5l7 7-7 7"
-                            />
-                          </svg>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-center py-6 text-zinc-500 text-sm border border-zinc-850 rounded-xl">
-                        No messages found in your inbox.
-                      </div>
-                    )}
+                  {messages && messages.length > 0 ? (
+  messages.map((msg: any) => (
+    <div
+      key={msg.id}
+      className="p-5 rounded-xl bg-zinc-950/50 border border-zinc-900/80 hover:border-zinc-800 transition-all duration-150 flex items-start justify-between gap-4"
+    >
+      <div className="space-y-2 min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-semibold text-xs text-indigo-400 max-w-[200px] truncate">
+            {msg.from}
+          </span>
+          <span className="text-zinc-600 text-[10px] hidden sm:inline">|</span>
+          <span className="text-zinc-500 text-[10px] font-mono">
+            ID: {msg.id.substring(0, 8)}...
+          </span>
+        </div>
+        
+        {/* Render the actual Subject line */}
+        <h4 className="text-sm font-bold text-zinc-200 truncate">
+          {msg.subject}
+        </h4>
+        
+        {/* Render the actual Email Snippet summary text */}
+        <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">
+          {msg.snippet}
+        </p>
+      </div>
+      <svg
+        className="w-4 h-4 text-zinc-600 shrink-0 mt-2"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+      </svg>
+    </div>
+  ))
+) : (
+  <div className="text-center py-6 text-zinc-500 text-sm border border-zinc-850 rounded-xl">
+    No messages found in your inbox.
+  </div>
+)}
                   </div>
                 </div>
               )}

@@ -132,7 +132,7 @@ export const corsairAccounts = pgTable("corsair_accounts", {
   integrationId: text("integration_id")
     .notNull()
     .references(() => corsairIntegrations.id),
-  config: jsonb("config").notNull().default({}),
+  config: text("config").notNull(),
   dek: text("dek"),
 });
 
