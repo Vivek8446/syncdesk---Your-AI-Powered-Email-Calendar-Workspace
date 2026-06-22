@@ -1,5 +1,3 @@
-import 'dotenv/config';
-import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { createCorsair } from 'corsair';
 import {  gmail } from '@corsair-dev/gmail';
@@ -10,6 +8,7 @@ import 'dotenv/config'
 // const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 // const db = drizzle(pool); // your app tables
 
+//@ts-ignore
 export const corsair = createCorsair({
     plugins: [gmail(), github(), googlecalendar()],
     database: pool,
