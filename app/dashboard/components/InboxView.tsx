@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useTransition } from "react";
-import { Mail, Tag, Users, RefreshCw } from "lucide-react";
+import { Mail, Tag, Users, RefreshCw, Star } from "lucide-react";
 import { starMessage } from "@/app/actions/gmail";
 
 interface Email {
@@ -15,11 +15,11 @@ interface Email {
 }
 
 interface InboxViewProps {
-  activeSubTab: "primary" | "promotions" | "social" | "updates";
-  setActiveSubTab: (tab: "primary" | "promotions" | "social" | "updates") => void;
+  activeSubTab: "primary" | "starred" | "promotions" | "social" | "updates";
+  setActiveSubTab: (tab: "primary" | "starred" | "promotions" | "social" | "updates") => void;
   emails: Record<string, Email[]>;
-  toggleCheckbox: (tab: "primary" | "promotions" | "social" | "updates", id: string) => void;
-  toggleStar: (tab: "primary" | "promotions" | "social" | "updates", id: string) => Promise<void>;
+  toggleCheckbox: (tab: "primary" | "starred" | "promotions" | "social" | "updates", id: string) => void;
+  toggleStar: (tab: "primary" | "starred" | "promotions" | "social" | "updates", id: string) => Promise<void>;
   fetchEmails: (tab: string) => void;
   isLoadingEmails: boolean;
   gmailConnected: boolean;
@@ -65,7 +65,7 @@ export function InboxView({
         </div>
       </div>
 
-      {/* Gmail Sub-Tabs (Primary, Promotions, Social, Updates) */}
+      {/* Gmail Sub-Tabs (Primary, Starred, Promotions, Social, Updates) */}
       <div className="border-b border-[#24453e] shrink-0">
         <div className="flex space-x-1 sm:space-x-4">
           {/* Primary Tab */}
@@ -79,6 +79,19 @@ export function InboxView({
           >
             <Mail className="h-4 w-4" />
             <span>Primary</span>
+          </button>
+
+          {/* Starred Tab */}
+          <button
+            onClick={() => setActiveSubTab("starred")}
+            className={`flex items-center gap-2.5 px-4 py-3 text-xs font-semibold border-b-2 transition-all ${
+              activeSubTab === "starred"
+                ? "border-[#89D7B7] text-[#89D7B7]"
+                : "border-transparent text-[#FFF4E1]/60 hover:text-white"
+            }`}
+          >
+            <Star className="h-4 w-4" />
+            <span>Starred</span>
           </button>
 
           {/* Promotions Tab */}
@@ -135,6 +148,7 @@ export function InboxView({
                 email={email} 
                 activeSubTab={activeSubTab} 
                 toggleCheckbox={toggleCheckbox} 
+                toggleStar={toggleStar}
               />
             ))}
           </div>
@@ -157,11 +171,13 @@ export function InboxView({
 function EmailRow({ 
   email, 
   activeSubTab, 
-  toggleCheckbox 
+  toggleCheckbox,
+  toggleStar
 }: { 
   email: Email, 
   activeSubTab: string, 
-  toggleCheckbox: (tab: any, id: string) => void 
+  toggleCheckbox: (tab: any, id: string) => void,
+  toggleStar: (tab: any, id: string) => Promise<void>
 }) {
   const [isPending, startTransition] = useTransition();
 
@@ -169,14 +185,7 @@ function EmailRow({
     e.preventDefault(); // Stop row click propagation if navigation is attached
     
     startTransition(async () => {
-      // Pass the current toggle state to star/unstar properly
-      const result = await starMessage(email.id, email.starred);
-      if (result.success) {
-        // Optimistic local update is handled by the server revalidatePath("/dashboard")
-        // but can optionally be triggered locally here.
-      } else {
-        alert(`Error starring email: ${result.error}`);
-      }
+      await toggleStar(activeSubTab as any, email.id);
     });
   };
 
@@ -205,21 +214,14 @@ function EmailRow({
         }`}
         title="Star this email"
       >
-        <svg
+        <Star
           className={`w-4.5 h-4.5 transition-colors ${
             email.starred ? "fill-[#89D7B7] text-[#89D7B7]" : "text-[#FFF4E1]/30 group-hover:text-amber-400"
           }`}
           fill={email.starred ? "currentColor" : "none"}
           stroke="currentColor"
           strokeWidth={email.starred ? 0 : 2}
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M11.48 3.499c.151-.312.596-.312.748 0l2.141 4.43 4.817.697c.345.05.483.473.233.716l-3.486 3.401.82 4.794c.059.344-.302.607-.609.445L12 15.347l-4.344 2.373c-.307.162-.668-.101-.609-.445l.82-4.794L4.383 11.538c-.25-.243-.113-.666.233-.716l4.817-.697 2.141-4.43z"
-          />
-        </svg>
+        />
       </button>
 
       {/* Sender Column */}

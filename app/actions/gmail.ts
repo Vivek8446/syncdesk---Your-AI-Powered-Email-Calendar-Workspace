@@ -21,14 +21,18 @@ export async function starMessage(messageId: string, removeStar: boolean = false
     console.log(`${removeStar ? '❌ Unstar' : '⭐ Star'} Request: Message ${messageId} for user ${userId}`);
 
     // 2. Modify the email by adding or removing the 'STARRED' system label
-    // Note: Corsair's auto-generated types might expect an empty array instead of undefined
     const tenant = (corsair as any).withTenant(userId);
     
-    await tenant.gmail.api.messages.modify({
+    const modifyParams: any = {
       id: messageId,
-      addLabelIds: removeStar ? [] : ["STARRED"],
-      removeLabelIds: removeStar ? ["STARRED"] : [],
-    });
+    };
+    if (removeStar) {
+      modifyParams.removeLabelIds = ["STARRED"];
+    } else {
+      modifyParams.addLabelIds = ["STARRED"];
+    }
+
+    await tenant.gmail.api.messages.modify(modifyParams);
 
     // 3. Refresh the dashboard path data dynamically
     revalidatePath("/dashboard");

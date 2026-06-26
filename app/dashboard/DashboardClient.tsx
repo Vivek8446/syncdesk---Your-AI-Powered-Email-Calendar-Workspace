@@ -148,7 +148,7 @@ export function DashboardClient({
   ]);
 
   // Inbox Sub-tabs controls
-  const [activeSubTab, setActiveSubTab] = useState<"primary" | "promotions" | "social" | "updates">("primary");
+  const [activeSubTab, setActiveSubTab] = useState<"primary" | "starred" | "promotions" | "social" | "updates">("primary");
 
   const [emails, setEmails] = useState<Record<string, any[]>>(() => {
     // Initial dynamic messages from Gmail API (or fallback if empty)
@@ -159,13 +159,16 @@ export function DashboardClient({
         subject: m.subject || "No Subject",
         snippet: m.snippet || "No snippet available",
         date: m.date || "07:16",
-        starred: m.starred || false,
+        starred: Array.isArray(m.labelIds)
+          ? m.labelIds.includes("STARRED")
+          : (m.starred || false),
         checked: false
       }))
       : [];
 
     return {
       primary: apiMessages,
+      starred: [],
       promotions: [],
       social: [],
       updates: []
@@ -173,7 +176,7 @@ export function DashboardClient({
   });
 
   // ⭐ Star / Unstar an email via Corsair Gmail API (messages.modify)
-  const toggleStar = async (tab: "primary" | "promotions" | "social" | "updates", id: string) => {
+  const toggleStar = async (tab: "primary" | "starred" | "promotions" | "social" | "updates", id: string) => {
     const email = emails[tab].find((e) => e.id === id);
     if (!email) return;
     const currentStarred = email.starred;
@@ -191,8 +194,8 @@ export function DashboardClient({
         body: JSON.stringify({
           action: "modify",
           messageId: id,
-          addLabelIds: currentStarred ? [] : ["STARRED"],
-          removeLabelIds: currentStarred ? ["STARRED"] : [],
+          addLabelIds: currentStarred ? undefined : ["STARRED"],
+          removeLabelIds: currentStarred ? ["STARRED"] : undefined,
         }),
       });
       if (!res.ok) throw new Error("Failed to modify label");
@@ -206,7 +209,7 @@ export function DashboardClient({
     }
   };
 
-  const toggleCheckbox = (tab: "primary" | "promotions" | "social" | "updates", id: string) => {
+  const toggleCheckbox = (tab: "primary" | "starred" | "promotions" | "social" | "updates", id: string) => {
     setEmails(prev => ({
       ...prev,
       [tab]: prev[tab].map(email => email.id === id ? { ...email, checked: !email.checked } : email)
@@ -219,7 +222,7 @@ export function DashboardClient({
     setIsLoadingEmails(true);
     try {
       const q = searchQuery || "";
-      const tab = tabQuery || "inbox";
+      const tab = tabQuery || activeSubTab;
       const res = await fetch(`/api/gmail?tab=${tab}&q=${encodeURIComponent(q)}`);
       if (res.ok) {
         const data = await res.json();
@@ -229,10 +232,12 @@ export function DashboardClient({
           subject: m.subject || "No Subject",
           snippet: m.snippet || "",
           date: m.date || "",
-          starred: m.starred || false,
+          starred: Array.isArray(m.labelIds)
+            ? m.labelIds.includes("STARRED")
+            : (m.starred || false),
           checked: false,
         }));
-        setEmails(prev => ({ ...prev, primary: mapped }));
+        setEmails(prev => ({ ...prev, [tab]: mapped }));
       }
     } catch (err) {
       console.error("Error fetching emails:", err);
@@ -347,6 +352,19 @@ export function DashboardClient({
       updateDateText();
     }, 100);
   }, []);
+
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      // If we don't have initial messages, fetch them
+      if (emails.primary.length === 0) {
+        fetchEmails(activeSubTab);
+      }
+      return;
+    }
+    fetchEmails(activeSubTab);
+  }, [activeSubTab]);
 
   const handleConfirmMeeting = (messageId: number) => {
     // Update the message state to show confirmed

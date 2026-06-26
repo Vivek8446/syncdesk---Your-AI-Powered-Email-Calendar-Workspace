@@ -17,6 +17,7 @@ export async function GET() {
 
   try {
     // 1. Try to fetch messages
+    //@ts-ignore
     const messages = await tenantCorsair.gmail.api.messages.list({
       includeSpamTrash: true,
       maxResults: 5,

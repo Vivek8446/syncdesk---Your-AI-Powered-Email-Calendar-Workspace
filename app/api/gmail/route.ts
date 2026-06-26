@@ -48,22 +48,30 @@ export async function GET(request: Request) {
 
     // ─── Messages list (default) ─────────────────
     // Map active folders/tabs to Gmail search queries
-    let baseQuery = "label:INBOX";
-    if (tab === "starred") baseQuery = "is:starred";
-    else if (tab === "promotions") baseQuery = "category:promotions";
-    else if (tab === "social") baseQuery = "category:social";
-    else if (tab === "updates") baseQuery = "category:updates";
-    else if (tab === "drafts") baseQuery = "label:DRAFT";
-    else if (tab === "sent") baseQuery = "label:SENT";
-    else if (tab === "spam") baseQuery = "label:SPAM";
-    else if (tab === "trash") baseQuery = "label:TRASH";
-
-    const finalQuery = userQuery ? `${baseQuery} ${userQuery}` : baseQuery;
-
-    const listRes = await tenant.gmail.api.messages.list({
+    let listParams: any = {
       maxResults: 20,
-      q: finalQuery,
-    });
+    };
+
+    if (tab === "starred") {
+      listParams.labelIds = ["STARRED"];
+      if (userQuery) {
+        listParams.q = userQuery;
+      }
+    } else {
+      let baseQuery = "label:INBOX";
+      if (tab === "promotions") baseQuery = "category:promotions";
+      else if (tab === "social") baseQuery = "category:social";
+      else if (tab === "updates") baseQuery = "category:updates";
+      else if (tab === "drafts") baseQuery = "label:DRAFT";
+      else if (tab === "sent") baseQuery = "label:SENT";
+      else if (tab === "spam") baseQuery = "label:SPAM";
+      else if (tab === "trash") baseQuery = "label:TRASH";
+
+      listParams.q = userQuery ? `${baseQuery} ${userQuery}` : baseQuery;
+    }
+
+    const listRes = await tenant.gmail.api.messages.list(listParams);
+    console.log("📬 [Gmail LIST] Raw list response:", JSON.stringify(listRes, null, 2));
 
     let messagesList: any[] = [];
     if (listRes && listRes.messages && listRes.messages.length > 0) {
@@ -110,7 +118,7 @@ export async function GET(request: Request) {
           const labelIds = fullMessage.labelIds || [];
           const starred = labelIds.includes("STARRED");
 
-          return {
+          const emailData = {
             id: fullMessage.id,
             threadId: fullMessage.threadId,
             snippet: fullMessage.snippet || "",
@@ -120,6 +128,11 @@ export async function GET(request: Request) {
             starred,
             labelIds,
           };
+
+          console.log(`📧 [Gmail MESSAGE] id=${emailData.id} | starred=${starred} | labels=${labelIds.join(", ")}`);
+          console.log("📧 [Gmail MESSAGE] Full data:", JSON.stringify(emailData, null, 2));
+
+          return emailData;
         } catch (err) {
           console.error(`Failed to fetch details for message ${msg.id}:`, err);
           return null;
@@ -130,6 +143,7 @@ export async function GET(request: Request) {
       messagesList = resolvedMessages.filter((msg) => msg !== null);
     }
 
+    console.log(`✅ [Gmail RESPONSE] Returning ${messagesList.length} messages to client:`, JSON.stringify(messagesList, null, 2));
     return NextResponse.json({ messages: messagesList });
   } catch (error: any) {
     console.error("Gmail GET error:", error?.message || error);
@@ -156,12 +170,21 @@ export async function POST(request: Request) {
 
     // ─── messages.modify (Star / Unstar / Label changes) ───
     if (action === "modify") {
-      const { messageId, addLabelIds = [], removeLabelIds = [] } = body;
-      const result = await tenant.gmail.api.messages.modify({
+      const { messageId, addLabelIds, removeLabelIds } = body;
+      console.log("⭐ [Gmail MODIFY] POST body:", JSON.stringify({ messageId, addLabelIds, removeLabelIds }, null, 2));
+
+      const modifyParams: any = {
         id: messageId,
-        addLabelIds,
-        removeLabelIds,
-      });
+      };
+
+      if (addLabelIds && addLabelIds.length > 0) {
+        modifyParams.addLabelIds = addLabelIds;
+      }
+      if (removeLabelIds && removeLabelIds.length > 0) {
+        modifyParams.removeLabelIds = removeLabelIds;
+      }
+
+      const result = await tenant.gmail.api.messages.modify(modifyParams);
       return NextResponse.json({ success: true, message: result });
     }
 
