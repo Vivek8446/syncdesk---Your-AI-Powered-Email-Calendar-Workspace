@@ -22,6 +22,7 @@ interface InboxViewProps {
   toggleStar: (tab: "primary" | "starred" | "promotions" | "social" | "updates", id: string) => Promise<void>;
   fetchEmails: (tab: string) => void;
   isLoadingEmails: boolean;
+  isInitialLoading: boolean;
   gmailConnected: boolean;
 }
 
@@ -33,6 +34,7 @@ export function InboxView({
   toggleStar,
   fetchEmails,
   isLoadingEmails,
+  isInitialLoading,
   gmailConnected,
 }: InboxViewProps) {
   return (
@@ -140,7 +142,20 @@ export function InboxView({
 
       {/* Table/List of Emails based on active sub-tab */}
       <div className="flex-1 overflow-y-auto bg-[#122420]/30 border border-[#24453e] rounded-2xl overflow-hidden backdrop-blur-xl custom-scrollbar">
-        {emails[activeSubTab] && emails[activeSubTab].length > 0 ? (
+        {isInitialLoading ? (
+          /* Loading skeleton while first fetch is in progress */
+          <div className="divide-y divide-[#24453e]/60">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="flex items-center px-4 py-3 animate-pulse">
+                <div className="h-3.5 w-3.5 bg-[#24453e] rounded mr-3" />
+                <div className="h-4 w-4 bg-[#24453e] rounded mr-4" />
+                <div className="w-40 h-3 bg-[#24453e] rounded mr-4" />
+                <div className="flex-1 h-3 bg-[#24453e]/60 rounded mr-4" />
+                <div className="w-16 h-3 bg-[#24453e] rounded" />
+              </div>
+            ))}
+          </div>
+        ) : emails[activeSubTab] && emails[activeSubTab].length > 0 ? (
           <div className="divide-y divide-[#24453e]/60">
             {emails[activeSubTab].map((email) => (
               <EmailRow 

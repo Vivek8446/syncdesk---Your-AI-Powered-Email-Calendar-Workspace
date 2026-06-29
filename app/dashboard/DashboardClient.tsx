@@ -62,6 +62,7 @@ export function DashboardClient({
   const [isSignOutLoading, setIsSignOutLoading] = useState(false);
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [isLoadingEmails, setIsLoadingEmails] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
 
   // Compose form state
@@ -243,6 +244,7 @@ export function DashboardClient({
       console.error("Error fetching emails:", err);
     } finally {
       setIsLoadingEmails(false);
+      setIsInitialLoading(false);
     }
   };
 
@@ -357,10 +359,8 @@ export function DashboardClient({
   useEffect(() => {
     if (isFirstRender.current) {
       isFirstRender.current = false;
-      // If we don't have initial messages, fetch them
-      if (emails.primary.length === 0) {
-        fetchEmails(activeSubTab);
-      }
+      // Always fetch on mount (server no longer pre-fetches emails)
+      fetchEmails(activeSubTab);
       return;
     }
     fetchEmails(activeSubTab);
@@ -542,6 +542,7 @@ export function DashboardClient({
               toggleStar={toggleStar}
               fetchEmails={fetchEmails}
               isLoadingEmails={isLoadingEmails}
+              isInitialLoading={isInitialLoading}
               gmailConnected={gmailConnected}
             />
           )}

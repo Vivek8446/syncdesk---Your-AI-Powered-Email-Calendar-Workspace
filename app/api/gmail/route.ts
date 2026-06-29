@@ -3,6 +3,30 @@ import { auth } from "@/app/src/lib/auth";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 
+// ─── In-memory cache (per user/tab/query, 60s TTL) ──────────────
+const emailCache = new Map<string, { data: any[]; nextPageToken: string | null; ts: number }>();
+const CACHE_TTL_MS = 60_000;
+
+function getCached(key: string): { data: any[]; nextPageToken: string | null } | null {
+  const entry = emailCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL_MS) {
+    emailCache.delete(key);
+    return null;
+  }
+  return { data: entry.data, nextPageToken: entry.nextPageToken };
+}
+
+function setCache(key: string, data: any[], nextPageToken: string | null) {
+  emailCache.set(key, { data, nextPageToken, ts: Date.now() });
+}
+
+function invalidateCache(userId: string) {
+  for (const key of emailCache.keys()) {
+    if (key.startsWith(userId)) emailCache.delete(key);
+  }
+}
+
 /**
  * Gmail API Route Handler
  * 
@@ -46,11 +70,16 @@ export async function GET(request: Request) {
       return NextResponse.json({ drafts: res.drafts || [] });
     }
 
+    // ─── Check cache before hitting Gmail API ────
+    const cacheKey = `${session.user.id}:${tab}:${userQuery}`;
+    const cached = getCached(cacheKey);
+    if (cached) {
+      console.log(`⚡ [Gmail CACHE HIT] ${tab} → ${cached.data.length} msgs`);
+      return NextResponse.json({ messages: cached.data, nextPageToken: cached.nextPageToken });
+    }
+
     // ─── Messages list (default) ─────────────────
-    // Map active folders/tabs to Gmail search queries
-    let listParams: any = {
-      maxResults: 20,
-    };
+    let listParams: any = { maxResults: 10 };
 
     if (tab === "starred") {
       listParams.labelIds = ["STARRED"];
@@ -70,19 +99,21 @@ export async function GET(request: Request) {
       listParams.q = userQuery ? `${baseQuery} ${userQuery}` : baseQuery;
     }
 
+    const t0 = Date.now();
     const listRes = await tenant.gmail.api.messages.list(listParams);
-    console.log("📬 [Gmail LIST] Raw list response:", JSON.stringify(listRes, null, 2));
+    console.log(`📬 [Gmail LIST] ${listRes?.messages?.length ?? 0} IDs in ${Date.now() - t0}ms`);
 
     let messagesList: any[] = [];
     if (listRes && listRes.messages && listRes.messages.length > 0) {
+      // Fetch metadata in parallel (not full body — ~10x lighter)
       const detailedMessagesPromises = listRes.messages.map(async (msg: any) => {
         try {
-          const fullMessage = await tenant.gmail.api.messages.get({
+          const metaMsg = await tenant.gmail.api.messages.get({
             id: msg.id,
-            format: "full",
+            format: "metadata",
           });
 
-          const headersList = fullMessage.payload?.headers || [];
+          const headersList = metaMsg.payload?.headers || [];
           const subject =
             headersList.find((h: any) => h.name.toLowerCase() === "subject")?.value ||
             "No Subject";
@@ -115,26 +146,21 @@ export async function GET(request: Request) {
             }
           }
 
-          const labelIds = fullMessage.labelIds || [];
+          const labelIds = metaMsg.labelIds || [];
           const starred = labelIds.includes("STARRED");
 
-          const emailData = {
-            id: fullMessage.id,
-            threadId: fullMessage.threadId,
-            snippet: fullMessage.snippet || "",
+          return {
+            id: metaMsg.id,
+            threadId: metaMsg.threadId,
+            snippet: metaMsg.snippet || "",
             subject,
             from,
             date: formattedDate,
             starred,
             labelIds,
           };
-
-          console.log(`📧 [Gmail MESSAGE] id=${emailData.id} | starred=${starred} | labels=${labelIds.join(", ")}`);
-          console.log("📧 [Gmail MESSAGE] Full data:", JSON.stringify(emailData, null, 2));
-
-          return emailData;
         } catch (err) {
-          console.error(`Failed to fetch details for message ${msg.id}:`, err);
+          console.error(`Failed to fetch metadata for message ${msg.id}:`, err);
           return null;
         }
       });
@@ -143,8 +169,13 @@ export async function GET(request: Request) {
       messagesList = resolvedMessages.filter((msg) => msg !== null);
     }
 
-    console.log(`✅ [Gmail RESPONSE] Returning ${messagesList.length} messages to client:`, JSON.stringify(messagesList, null, 2));
-    return NextResponse.json({ messages: messagesList });
+    const nextPageToken = listRes?.nextPageToken || null;
+
+    // Store in cache for instant tab switching
+    setCache(cacheKey, messagesList, nextPageToken);
+    console.log(`✅ [Gmail] ${messagesList.length} msgs ready in ${Date.now() - t0}ms`);
+
+    return NextResponse.json({ messages: messagesList, nextPageToken });
   } catch (error: any) {
     console.error("Gmail GET error:", error?.message || error);
     return NextResponse.json(
@@ -171,12 +202,8 @@ export async function POST(request: Request) {
     // ─── messages.modify (Star / Unstar / Label changes) ───
     if (action === "modify") {
       const { messageId, addLabelIds, removeLabelIds } = body;
-      console.log("⭐ [Gmail MODIFY] POST body:", JSON.stringify({ messageId, addLabelIds, removeLabelIds }, null, 2));
 
-      const modifyParams: any = {
-        id: messageId,
-      };
-
+      const modifyParams: any = { id: messageId };
       if (addLabelIds && addLabelIds.length > 0) {
         modifyParams.addLabelIds = addLabelIds;
       }
@@ -185,6 +212,10 @@ export async function POST(request: Request) {
       }
 
       const result = await tenant.gmail.api.messages.modify(modifyParams);
+
+      // Invalidate cache so next fetch reflects the label change
+      invalidateCache(session.user.id);
+
       return NextResponse.json({ success: true, message: result });
     }
 
